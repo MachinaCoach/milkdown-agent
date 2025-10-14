@@ -1,0 +1,17 @@
+{
+  "name": "milkdown-agent-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Monorepo for the Milkdown agent-friendly suggestion plugin and demos.",
+  "packageManager": "pnpm@10.13.1",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r run build",
+    "clean": "pnpm -r run clean",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test"
+  }
+}

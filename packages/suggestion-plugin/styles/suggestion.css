@@ -1,0 +1,25 @@
+.agent-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.25rem;
+  border-radius: 0.25rem;
+  background-color: color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 40%, transparent);
+  cursor: pointer;
+}
+
+.agent-suggestion__old {
+  text-decoration: line-through;
+  color: var(--agent-suggestion-remove, #dc2626);
+  opacity: 0.7;
+}
+
+.agent-suggestion__new {
+  font-weight: 600;
+  color: var(--agent-suggestion-insert, #16a34a);
+}
+
+.agent-suggestion:hover {
+  background-color: color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 25%, transparent);
+}
