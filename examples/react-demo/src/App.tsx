@@ -3,6 +3,7 @@ import { Editor, rootCtx, editorViewCtx } from '@milkdown/core';
 import { MilkdownProvider, Milkdown, useEditor, useInstance } from '@milkdown/react';
 import { commonmark } from '@milkdown/preset-commonmark';
 import { nord } from '@milkdown/theme-nord';
+import '@milkdown/theme-nord/style.css';
 import { nanoid } from 'nanoid';
 import {
   agentSuggestion,
@@ -86,8 +87,8 @@ const DemoMilkdown = () => {
         .use(commonmark)
         .config((ctx) => {
           ctx.set(rootCtx, root);
-          lockEditor(ctx);
         })
+        .config(lockEditor)
         .use(agentSuggestion()),
     [],
   );
@@ -132,18 +133,22 @@ const SuggestionPanel = ({
 };
 
 const Playground = () => {
-  const { editor } = useInstance();
+  const [loading, getEditor] = useInstance();
   const [suggestions, setSuggestions] = useState<SuggestionSnapshot[]>([]);
 
   const refreshSuggestions = useCallback(() => {
-    editor()?.action((ctx) => {
+    if (loading) return;
+    const editor = getEditor();
+    editor?.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       setSuggestions(collectSuggestions(view.state.doc));
     });
-  }, [editor]);
+  }, [loading, getEditor]);
 
   const seedSuggestions = useCallback(() => {
-    editor()?.action((ctx) => {
+    if (loading) return;
+    const editor = getEditor();
+    editor?.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const { state } = view;
       const existingIds = new Set(collectSuggestions(state.doc).map((item) => item.id));
@@ -169,12 +174,13 @@ const Playground = () => {
       });
     });
     refreshSuggestions();
-  }, [editor, refreshSuggestions]);
+  }, [loading, getEditor, refreshSuggestions]);
 
   useEffect(() => {
-    const instance = editor();
-    if (!instance) return;
-    instance.action((ctx) => {
+    if (loading) return;
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const { state, dispatch } = view;
       if (!state.doc.textBetween(0, state.doc.content.size, '\n').length) {
@@ -184,30 +190,36 @@ const Playground = () => {
       }
     });
     seedSuggestions();
-  }, [editor, seedSuggestions]);
+  }, [loading, getEditor, seedSuggestions]);
 
   const accept = useCallback(
     (id: string) => {
-      editor()?.action((ctx) => {
+      if (loading) return;
+      const editor = getEditor();
+      editor?.action((ctx) => {
         acceptSuggestion(id)(ctx);
       });
       refreshSuggestions();
     },
-    [editor, refreshSuggestions],
+    [loading, getEditor, refreshSuggestions],
   );
   
   const reject = useCallback(
     (id: string) => {
-      editor()?.action((ctx) => {
+      if (loading) return;
+      const editor = getEditor();
+      editor?.action((ctx) => {
         rejectSuggestion(id)(ctx);
       });
       refreshSuggestions();
     },
-    [editor, refreshSuggestions],
+    [loading, getEditor, refreshSuggestions],
   );
 
   const reset = useCallback(() => {
-    editor()?.action((ctx) => {
+    if (loading) return;
+    const editor = getEditor();
+    editor?.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       const { state, dispatch } = view;
       const tr = state.tr;
@@ -216,7 +228,7 @@ const Playground = () => {
       dispatch(tr);
     });
     seedSuggestions();
-  }, [editor, seedSuggestions]);
+  }, [loading, getEditor, seedSuggestions]);
 
   return (
     <div className="app">

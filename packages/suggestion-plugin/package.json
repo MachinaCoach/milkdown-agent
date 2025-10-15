@@ -27,7 +27,7 @@
   },
   "peerDependencies": {
     "@milkdown/core": "^7.2.0",
-    "@milkdown/prose": "^1.20.0"
+    "@milkdown/prose": "^7.2.0"
   },
   "dependencies": {
     "@milkdown/ctx": "^7.2.0",

@@ -1,7 +1,6 @@
-import type { Ctx } from '@milkdown/ctx';
-import { commandsCtx, editorViewOptionsCtx, type MilkdownPlugin } from '@milkdown/core';
-import { createCmd, createCmdKey, createNode } from '@milkdown/utils';
-import type { Command } from '@milkdown/prose/commands';
+import type { Ctx, MilkdownPlugin } from '@milkdown/ctx';
+import { commandsCtx, editorViewOptionsCtx, createCmdKey } from '@milkdown/core';
+import { $node, $command } from '@milkdown/utils';
 import type { Node as ProseNode } from '@milkdown/prose/model';
 
 export type SuggestionAttrs = {
@@ -33,169 +32,192 @@ export const RejectSuggestion = createCmdKey<string>('RejectSuggestion');
 export const AcceptAllSuggestions = createCmdKey('AcceptAllSuggestions');
 export const RejectAllSuggestions = createCmdKey('RejectAllSuggestions');
 
-const agentSuggestionNode = createNode(() => ({
-  id: 'agentSuggestion',
-  schema: () => ({
-    inline: true,
-    group: 'inline',
-    atom: true,
-    selectable: true,
-    attrs: {
-      id: { default: '' },
-      oldText: { default: '' },
-      newText: { default: '' },
-      metadata: { default: null },
-    },
-    parseDOM: [
-      {
-        tag: 'span[data-agent-suggestion]',
-        getAttrs: (dom) => {
-          const element = dom as HTMLElement;
-          const oldText = element.querySelector('[data-agent-suggestion-old]')?.textContent ?? '';
-          const newText = element.querySelector('[data-agent-suggestion-new]')?.textContent ?? '';
-          const metadata = element.getAttribute('data-agent-suggestion-meta');
-          let parsed: Record<string, unknown> | null = null;
-          if (metadata) {
-            try {
-              parsed = JSON.parse(metadata);
-            } catch (error) {
-              if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
-                console.warn('Unable to parse suggestion metadata', error);
-              }
+const agentSuggestionNode = $node('agentSuggestion', () => ({
+  inline: true,
+  group: 'inline',
+  atom: true,
+  selectable: true,
+  attrs: {
+    id: { default: '' },
+    oldText: { default: '' },
+    newText: { default: '' },
+    metadata: { default: null },
+  },
+  parseDOM: [
+    {
+      tag: 'span[data-agent-suggestion]',
+      getAttrs: (dom) => {
+        const element = dom as HTMLElement;
+        const oldText = element.querySelector('[data-agent-suggestion-old]')?.textContent ?? '';
+        const newText = element.querySelector('[data-agent-suggestion-new]')?.textContent ?? '';
+        const metadata = element.getAttribute('data-agent-suggestion-meta');
+        let parsed: Record<string, unknown> | null = null;
+        if (metadata) {
+          try {
+            parsed = JSON.parse(metadata);
+          } catch (error) {
+            if (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+              console.warn('Unable to parse suggestion metadata', error);
             }
           }
-          return {
-            id: element.getAttribute('data-suggestion-id') ?? '',
-            oldText,
-            newText,
-            metadata: parsed,
-          } satisfies SuggestionAttrs;
-        },
-      },
-    ],
-    toDOM: (node) => {
-      const { id, oldText, newText, metadata } = node.attrs as SuggestionAttrs;
-      return [
-        'span',
-        {
-          'data-agent-suggestion': 'true',
-          'data-suggestion-id': id,
-          'data-agent-suggestion-meta': metadata ? JSON.stringify(metadata) : undefined,
-          class: 'agent-suggestion',
-        },
-        ['span', { 'data-agent-suggestion-old': 'true', class: 'agent-suggestion__old' }, oldText],
-        ['span', { 'data-agent-suggestion-new': 'true', class: 'agent-suggestion__new' }, newText],
-      ];
-    },
-  }),
-  commands: (nodeType) => [
-    createCmd(InsertSuggestion, (payload): Command => {
-      return (state, dispatch) => {
-        const { from, to, id, newText } = payload;
-        if (!id) return false;
-        const docSize = state.doc.content.size;
-        if (from < 0 || to > docSize || from >= to) return false;
-        let duplicate = false;
-        state.doc.descendants((node) => {
-          if (node.type === nodeType && node.attrs.id === id) {
-            duplicate = true;
-            return false;
-          }
-          return true;
-        });
-        if (duplicate) return false;
-        const oldText = payload.oldText ?? state.doc.textBetween(from, to, '\n');
-        const node = nodeType.create({
-          id,
+        }
+        return {
+          id: element.getAttribute('data-suggestion-id') ?? '',
           oldText,
           newText,
-          metadata: payload.metadata ?? null,
-        });
-        if (dispatch) {
-          dispatch(state.tr.replaceWith(from, to, node));
-        }
-        return true;
-      };
-    }),
-    createCmd(AcceptSuggestion, (id): Command => {
-      return (state, dispatch) => {
-        let found = false;
-        const tr = state.tr;
-        state.doc.descendants((node, pos) => {
-          if (node.type === nodeType && node.attrs.id === id) {
-            found = true;
-            tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.newText));
-            return false;
-          }
-          return true;
-        });
-        if (found && dispatch) {
-          dispatch(tr);
-        }
-        return found;
-      };
-    }),
-    createCmd(RejectSuggestion, (id): Command => {
-      return (state, dispatch) => {
-        let found = false;
-        const tr = state.tr;
-        state.doc.descendants((node, pos) => {
-          if (node.type === nodeType && node.attrs.id === id) {
-            found = true;
-            tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.oldText));
-            return false;
-          }
-          return true;
-        });
-        if (found && dispatch) {
-          dispatch(tr);
-        }
-        return found;
-      };
-    }),
-    createCmd(AcceptAllSuggestions, (): Command => {
-      return (state, dispatch) => {
-        let changed = false;
-        const tr = state.tr;
-        state.doc.descendants((node, pos) => {
-          if (node.type === nodeType) {
-            changed = true;
-            tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.newText));
-            return false;
-          }
-          return true;
-        });
-        if (changed && dispatch) {
-          dispatch(tr);
-        }
-        return changed;
-      };
-    }),
-    createCmd(RejectAllSuggestions, (): Command => {
-      return (state, dispatch) => {
-        let changed = false;
-        const tr = state.tr;
-        state.doc.descendants((node, pos) => {
-          if (node.type === nodeType) {
-            changed = true;
-            tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.oldText));
-            return false;
-          }
-          return true;
-        });
-        if (changed && dispatch) {
-          dispatch(tr);
-        }
-        return changed;
-      };
-    }),
+          metadata: parsed,
+        } satisfies SuggestionAttrs;
+      },
+    },
   ],
+  toDOM: (node) => {
+    const { id, oldText, newText, metadata } = node.attrs as SuggestionAttrs;
+    return [
+      'span',
+      {
+        'data-agent-suggestion': 'true',
+        'data-suggestion-id': id,
+        'data-agent-suggestion-meta': metadata ? JSON.stringify(metadata) : undefined,
+        class: 'agent-suggestion',
+      },
+      ['span', { 'data-agent-suggestion-old': 'true', class: 'agent-suggestion__old' }, oldText],
+      ['span', { 'data-agent-suggestion-new': 'true', class: 'agent-suggestion__new' }, newText],
+    ];
+  },
+  parseMarkdown: {
+    match: () => false,
+    runner: () => {},
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === 'agentSuggestion',
+    runner: (state, node) => {
+      state.addNode('text', undefined, (node.attrs.newText as string) || '');
+    },
+  },
 }));
+
+const insertSuggestionCommand = $command<InsertSuggestionPayload, 'InsertSuggestion'>('InsertSuggestion', (ctx) => (payload) => {
+  return (state, dispatch) => {
+    if (!payload) return false;
+    const { from, to, id, newText } = payload;
+    if (!id) return false;
+    const docSize = state.doc.content.size;
+    if (from < 0 || to > docSize || from >= to) return false;
+    const nodeType = agentSuggestionNode.type(ctx);
+    let duplicate = false;
+    state.doc.descendants((node) => {
+      if (node.type === nodeType && node.attrs.id === id) {
+        duplicate = true;
+        return false;
+      }
+      return true;
+    });
+    if (duplicate) return false;
+    const oldText = payload.oldText ?? state.doc.textBetween(from, to, '\n');
+    const node = nodeType.create({
+      id,
+      oldText,
+      newText,
+      metadata: payload.metadata ?? null,
+    });
+    if (dispatch) {
+      dispatch(state.tr.replaceWith(from, to, node));
+    }
+    return true;
+  };
+});
+
+const acceptSuggestionCommand = $command<string, 'AcceptSuggestion'>('AcceptSuggestion', (ctx) => (id) => {
+  return (state, dispatch) => {
+    let found = false;
+    const tr = state.tr;
+    const nodeType = agentSuggestionNode.type(ctx);
+    state.doc.descendants((node, pos) => {
+      if (node.type === nodeType && node.attrs.id === id) {
+        found = true;
+        tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.newText));
+        return false;
+      }
+      return true;
+    });
+    if (found && dispatch) {
+      dispatch(tr);
+    }
+    return found;
+  };
+});
+
+const rejectSuggestionCommand = $command<string, 'RejectSuggestion'>('RejectSuggestion', (ctx) => (id) => {
+  return (state, dispatch) => {
+    let found = false;
+    const tr = state.tr;
+    const nodeType = agentSuggestionNode.type(ctx);
+    state.doc.descendants((node, pos) => {
+      if (node.type === nodeType && node.attrs.id === id) {
+        found = true;
+        tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.oldText));
+        return false;
+      }
+      return true;
+    });
+    if (found && dispatch) {
+      dispatch(tr);
+    }
+    return found;
+  };
+});
+
+const acceptAllSuggestionsCommand = $command<void, 'AcceptAllSuggestions'>('AcceptAllSuggestions', (ctx) => () => {
+  return (state, dispatch) => {
+    let changed = false;
+    const tr = state.tr;
+    const nodeType = agentSuggestionNode.type(ctx);
+    state.doc.descendants((node, pos) => {
+      if (node.type === nodeType) {
+        changed = true;
+        tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.newText));
+        return false;
+      }
+      return true;
+    });
+    if (changed && dispatch) {
+      dispatch(tr);
+    }
+    return changed;
+  };
+});
+
+const rejectAllSuggestionsCommand = $command<void, 'RejectAllSuggestions'>('RejectAllSuggestions', (ctx) => () => {
+  return (state, dispatch) => {
+    let changed = false;
+    const tr = state.tr;
+    const nodeType = agentSuggestionNode.type(ctx);
+    state.doc.descendants((node, pos) => {
+      if (node.type === nodeType) {
+        changed = true;
+        tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(node.attrs.oldText));
+        return false;
+      }
+      return true;
+    });
+    if (changed && dispatch) {
+      dispatch(tr);
+    }
+    return changed;
+  };
+});
 
 /**
  * Register the suggestion node and supporting commands.
  */
-export const agentSuggestion = (): MilkdownPlugin[] => [agentSuggestionNode];
+export const agentSuggestion = (): MilkdownPlugin[] => [
+  agentSuggestionNode,
+  insertSuggestionCommand,
+  acceptSuggestionCommand,
+  rejectSuggestionCommand,
+  acceptAllSuggestionsCommand,
+  rejectAllSuggestionsCommand,
+];
 
 /**
  * Helper that forces the editor into read-only mode so only programmatic actions modify content.
@@ -243,21 +265,21 @@ export const collectSuggestions = (doc: ProseNode): SuggestionSnapshot[] => {
  * Utility to dispatch a suggestion insertion via Editor.action without importing command keys.
  */
 export const insertSuggestion = (payload: InsertSuggestionPayload) => (ctx: Ctx) => {
-  ctx.get(commandsCtx).call(InsertSuggestion, payload);
+  return insertSuggestionCommand.run(payload);
 };
 
 export const acceptSuggestion = (id: string) => (ctx: Ctx) => {
-  ctx.get(commandsCtx).call(AcceptSuggestion, id);
+  return acceptSuggestionCommand.run(id);
 };
 
 export const rejectSuggestion = (id: string) => (ctx: Ctx) => {
-  ctx.get(commandsCtx).call(RejectSuggestion, id);
+  return rejectSuggestionCommand.run(id);
 };
 
 export const acceptAllSuggestions = () => (ctx: Ctx) => {
-  ctx.get(commandsCtx).call(AcceptAllSuggestions);
+  return acceptAllSuggestionsCommand.run();
 };
 
 export const rejectAllSuggestions = () => (ctx: Ctx) => {
-  ctx.get(commandsCtx).call(RejectAllSuggestions);
+  return rejectAllSuggestionsCommand.run();
 };
