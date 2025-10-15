@@ -1,25 +1,182 @@
 .agent-suggestion {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  padding: 0.05rem 0.25rem;
-  border-radius: 0.25rem;
-  background-color: color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 40%, transparent);
+  gap: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.35rem;
+  border: 1px solid transparent;
   cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  white-space: pre-wrap;
+  --agent-suggestion-insert-bg: rgba(56, 189, 248, 0.18);
+  --agent-suggestion-insert-border: rgba(56, 189, 248, 0.55);
+  --agent-suggestion-insert-text: #0f172a;
+  --agent-suggestion-remove-bg: rgba(248, 113, 113, 0.18);
+  --agent-suggestion-remove-border: rgba(248, 113, 113, 0.55);
+  --agent-suggestion-remove-text: #7f1d1d;
+  --agent-suggestion-replace-bg: rgba(165, 180, 252, 0.18);
+  --agent-suggestion-replace-border: rgba(129, 140, 248, 0.55);
+  --agent-suggestion-replace-text: #1e1b4b;
+  --agent-suggestion-actions-surface: rgba(15, 23, 42, 0.9);
+  --agent-suggestion-actions-border: rgba(148, 163, 184, 0.25);
+  --agent-suggestion-accept-bg: rgba(34, 197, 94, 0.18);
+  --agent-suggestion-accept-border: rgba(34, 197, 94, 0.45);
+  --agent-suggestion-accept-text: #022c22;
+  --agent-suggestion-reject-bg: rgba(248, 113, 113, 0.22);
+  --agent-suggestion-reject-border: rgba(248, 113, 113, 0.45);
+  --agent-suggestion-reject-text: #450a0a;
+}
+
+.agent-suggestion[data-agent-suggestion-theme='sunset'] {
+  --agent-suggestion-insert-bg: rgba(249, 115, 22, 0.16);
+  --agent-suggestion-insert-border: rgba(251, 146, 60, 0.6);
+  --agent-suggestion-insert-text: #431407;
+  --agent-suggestion-remove-bg: rgba(220, 38, 38, 0.18);
+  --agent-suggestion-remove-border: rgba(248, 113, 113, 0.6);
+  --agent-suggestion-remove-text: #7f1d1d;
+  --agent-suggestion-replace-bg: rgba(251, 191, 36, 0.18);
+  --agent-suggestion-replace-border: rgba(252, 211, 77, 0.55);
+  --agent-suggestion-replace-text: #78350f;
+  --agent-suggestion-actions-surface: rgba(24, 24, 27, 0.92);
+  --agent-suggestion-actions-border: rgba(244, 114, 182, 0.35);
+  --agent-suggestion-accept-bg: rgba(52, 211, 153, 0.22);
+  --agent-suggestion-accept-border: rgba(16, 185, 129, 0.55);
+  --agent-suggestion-accept-text: #022c22;
+  --agent-suggestion-reject-bg: rgba(248, 113, 113, 0.28);
+  --agent-suggestion-reject-border: rgba(248, 113, 113, 0.55);
+  --agent-suggestion-reject-text: #7f1d1d;
+}
+
+.agent-suggestion[data-agent-suggestion-change='insert'] {
+  background-color: var(--agent-suggestion-insert-bg);
+  border-color: var(--agent-suggestion-insert-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-suggestion-insert-border) 40%, transparent);
+}
+
+.agent-suggestion[data-agent-suggestion-change='remove'] {
+  background-color: var(--agent-suggestion-remove-bg);
+  border-color: var(--agent-suggestion-remove-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-suggestion-remove-border) 35%, transparent);
+}
+
+.agent-suggestion[data-agent-suggestion-change='replace'] {
+  background-color: var(--agent-suggestion-replace-bg);
+  border-color: var(--agent-suggestion-replace-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-suggestion-replace-border) 35%, transparent);
+}
+
+.agent-suggestion.agent-suggestion--selected {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.45);
+}
+
+.agent-suggestion:hover,
+.agent-suggestion:focus-visible,
+.agent-suggestion.agent-suggestion--active {
+  border-color: color-mix(in srgb, var(--agent-suggestion-insert-border) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-suggestion-insert-border) 50%, transparent);
+}
+
+.agent-suggestion[data-agent-suggestion-change='remove']:hover,
+.agent-suggestion[data-agent-suggestion-change='remove']:focus-visible,
+.agent-suggestion[data-agent-suggestion-change='remove'].agent-suggestion--active {
+  border-color: color-mix(in srgb, var(--agent-suggestion-remove-border) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-suggestion-remove-border) 50%, transparent);
+}
+
+.agent-suggestion[data-agent-suggestion-change='replace']:hover,
+.agent-suggestion[data-agent-suggestion-change='replace']:focus-visible,
+.agent-suggestion[data-agent-suggestion-change='replace'].agent-suggestion--active {
+  border-color: color-mix(in srgb, var(--agent-suggestion-replace-border) 70%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-suggestion-replace-border) 50%, transparent);
 }
 
 .agent-suggestion__old {
   text-decoration: line-through;
-  color: var(--agent-suggestion-remove, #dc2626);
-  opacity: 0.7;
+  color: var(--agent-suggestion-remove-text);
+  font-weight: 500;
+  opacity: 0.85;
 }
 
 .agent-suggestion__new {
-  font-weight: 600;
-  color: var(--agent-suggestion-insert, #16a34a);
+  font-weight: 700;
+  color: var(--agent-suggestion-insert-text);
 }
 
-.agent-suggestion:hover {
-  background-color: color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 25%, transparent);
+.agent-suggestion[data-agent-suggestion-change='replace'] .agent-suggestion__new {
+  color: var(--agent-suggestion-replace-text);
+}
+
+.agent-suggestion[data-agent-suggestion-change='remove'] .agent-suggestion__new {
+  display: none;
+}
+
+.agent-suggestion[data-agent-suggestion-change='insert'] .agent-suggestion__old {
+  display: none;
+}
+
+.agent-suggestion__actions {
+  position: absolute;
+  top: -2.4rem;
+  right: 0;
+  display: flex;
+  gap: 0.35rem;
+  background: var(--agent-suggestion-actions-surface);
+  border: 1px solid var(--agent-suggestion-actions-border);
+  border-radius: 999px;
+  padding: 0.25rem 0.35rem;
+  box-shadow: 0 12px 25px rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 5;
+}
+
+.agent-suggestion:hover .agent-suggestion__actions,
+.agent-suggestion:focus-within .agent-suggestion__actions,
+.agent-suggestion.agent-suggestion--selected .agent-suggestion__actions,
+.agent-suggestion[data-agent-suggestion-active='true'] .agent-suggestion__actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-6px);
+}
+
+.agent-suggestion__action {
+  font-family: inherit;
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.agent-suggestion__action:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.6);
+  outline-offset: 1px;
+}
+
+.agent-suggestion__action--accept {
+  background: var(--agent-suggestion-accept-bg);
+  border-color: var(--agent-suggestion-accept-border);
+  color: var(--agent-suggestion-accept-text);
+}
+
+.agent-suggestion__action--accept:hover {
+  background: color-mix(in srgb, var(--agent-suggestion-accept-bg) 70%, white 30%);
+}
+
+.agent-suggestion__action--reject {
+  background: var(--agent-suggestion-reject-bg);
+  border-color: var(--agent-suggestion-reject-border);
+  color: var(--agent-suggestion-reject-text);
+}
+
+.agent-suggestion__action--reject:hover {
+  background: color-mix(in srgb, var(--agent-suggestion-reject-bg) 65%, white 35%);
 }
