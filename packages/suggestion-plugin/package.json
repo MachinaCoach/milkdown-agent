@@ -2,7 +2,13 @@
   "name": "@milkdown-agent/suggestion-plugin",
   "version": "0.1.0",
   "description": "Agent-friendly diff suggestion extension for Milkdown editors.",
-  "keywords": ["milkdown", "agent", "suggestion", "diff", "markdown"],
+  "keywords": [
+    "milkdown",
+    "agent",
+    "suggestion",
+    "diff",
+    "markdown"
+  ],
   "homepage": "https://github.com/your-org/milkdown-agent",
   "license": "MIT",
   "type": "module",
@@ -17,8 +23,14 @@
     },
     "./style.css": "./styles/suggestion.css"
   },
-  "files": ["dist", "styles", "README.md"],
-  "sideEffects": ["./styles/suggestion.css"],
+  "files": [
+    "dist",
+    "styles",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./styles/suggestion.css"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "clean": "rimraf dist",
@@ -30,10 +42,14 @@
     "@milkdown/prose": "^7.2.0"
   },
   "dependencies": {
+    "@milkdown-agent/core": "workspace:*",
     "@milkdown/ctx": "^7.2.0",
-    "@milkdown/utils": "^7.2.0"
+    "@milkdown/utils": "^7.2.0",
+    "diff-match-patch": "^1.0.5",
+    "prosemirror-changeset": "^2.2.1"
   },
   "devDependencies": {
+    "@types/diff-match-patch": "^1.0.36",
     "@types/node": "^20.12.7",
     "@typescript-eslint/eslint-plugin": "^7.8.0",
     "@typescript-eslint/parser": "^7.8.0",

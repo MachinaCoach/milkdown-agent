@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Editor, rootCtx, editorViewCtx } from '@milkdown/core';
+import { Editor, rootCtx, editorViewCtx, defaultValueCtx } from '@milkdown/core';
 import { MilkdownProvider, Milkdown, useEditor, useInstance } from '@milkdown/react';
 import { commonmark } from '@milkdown/preset-commonmark';
 import { nord } from '@milkdown/theme-nord';
@@ -19,12 +19,52 @@ import './index.css';
 
 const initialMarkdown = `# Agent Suggestion Playground
 
-This demo keeps the Milkdown editor in review-only mode. Suggestions appear inline so reviewers can accept or reject them.
+Welcome to the **Milkdown Agent Plugin** demo! This editor showcases how AI agents can suggest changes to markdown documents.
 
-- rename this bullet
-- leave another bullet alone
+## Features
 
-Below is a short paragraph the agent wants to adjust.`;
+- **Inline suggestions** with accept/reject controls
+- **Change tracking** for user edits
+- **Comprehensive markdown** support
+
+## Text Formatting Examples
+
+This paragraph demonstrates *italic text*, **bold text**, and \`inline code\` for various formatting options.
+
+## Lists
+
+### Unordered List
+- First item with some content
+- Second item that could be modified
+- Third item to demonstrate deletions
+
+### Ordered List
+1. Step one in the process
+2. Step two needs clarification
+3. Step three is optional
+
+## Links and Code
+
+Check out the [Milkdown documentation](https://milkdown.dev) for more information.
+
+Here's a code block example:
+
+\`\`\`typescript
+function greet(name: string) {
+  return \`Hello, \${name}!\`;
+}
+\`\`\`
+
+## Blockquotes
+
+> This is a quote that might need editing.
+> It spans multiple lines.
+
+---
+
+## Summary
+
+This playground demonstrates agent-driven editing with full markdown support.`;
 
 type DemoSuggestion = {
   id: string;
@@ -34,23 +74,54 @@ type DemoSuggestion = {
 };
 
 const demoSuggestions: DemoSuggestion[] = [
+  // CHANGE: Modify text formatting
   {
-    id: 'demo-1',
-    search: 'keeps the Milkdown editor',
-    newText: 'presents a review-only editor experience',
-    metadata: { kind: 'tone' },
+    id: 'change-1',
+    search: 'This paragraph demonstrates',
+    newText: 'This example showcases',
+    metadata: { operation: 'CHANGE', element: 'text' },
   },
+  // CHANGE: Update list item
   {
-    id: 'demo-2',
-    search: 'rename this bullet',
-    newText: 'update this task label',
-    metadata: { kind: 'task' },
+    id: 'change-2',
+    search: 'Second item that could be modified',
+    newText: 'Second item with improved wording',
+    metadata: { operation: 'CHANGE', element: 'list-item' },
   },
+  // REMOVE: Delete list item (replace with empty)
   {
-    id: 'demo-3',
-    search: 'short paragraph the agent wants to adjust',
-    newText: 'brief paragraph that the agent has rewritten for clarity',
-    metadata: { kind: 'rewrite' },
+    id: 'remove-1',
+    search: 'Third item to demonstrate deletions',
+    newText: '',
+    metadata: { operation: 'REMOVE', element: 'list-item' },
+  },
+  // CHANGE: Update ordered list item
+  {
+    id: 'change-3',
+    search: 'Step two needs clarification',
+    newText: 'Step two with clear instructions',
+    metadata: { operation: 'CHANGE', element: 'ordered-list' },
+  },
+  // CHANGE: Update link text
+  {
+    id: 'change-4',
+    search: 'Milkdown documentation',
+    newText: 'official Milkdown docs',
+    metadata: { operation: 'CHANGE', element: 'link' },
+  },
+  // CHANGE: Modify blockquote
+  {
+    id: 'change-5',
+    search: 'This is a quote that might need editing.',
+    newText: 'This is an improved quote with better clarity.',
+    metadata: { operation: 'CHANGE', element: 'blockquote' },
+  },
+  // CHANGE: Update summary
+  {
+    id: 'change-6',
+    search: 'agent-driven editing',
+    newText: 'AI-powered collaborative editing',
+    metadata: { operation: 'CHANGE', element: 'text' },
   },
 ];
 
@@ -79,7 +150,7 @@ const computeRanges = (doc: Parameters<typeof collectSuggestions>[0], search: st
   return { from, to: endPos + 1 };
 };
 
-const DemoMilkdown = () => {
+const DemoMilkdown = ({ onSuggestionsChanged }: { onSuggestionsChanged: (suggestions: SuggestionSnapshot[]) => void }) => {
   useEditor(
     (root) =>
       Editor.make()
@@ -87,10 +158,21 @@ const DemoMilkdown = () => {
         .use(commonmark)
         .config((ctx) => {
           ctx.set(rootCtx, root);
+          ctx.set(defaultValueCtx, initialMarkdown);
         })
         .config(lockEditor)
-        .use(agentSuggestion()),
-    [],
+        .use(agentSuggestion({
+          onSuggestionAccepted: (suggestion) => {
+            console.log('Suggestion accepted:', suggestion);
+          },
+          onSuggestionRejected: (suggestion) => {
+            console.log('Suggestion rejected:', suggestion);
+          },
+          onSuggestionsChanged: (suggestions) => {
+            onSuggestionsChanged(suggestions);
+          },
+        })),
+    [onSuggestionsChanged],
   );
 
   return <Milkdown />;
@@ -178,19 +260,8 @@ const Playground = () => {
 
   useEffect(() => {
     if (loading) return;
-    const editor = getEditor();
-    if (!editor) return;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      const { state, dispatch } = view;
-      if (!state.doc.textBetween(0, state.doc.content.size, '\n').length) {
-        const { tr } = state;
-        tr.insertText(initialMarkdown, 0);
-        dispatch(tr);
-      }
-    });
     seedSuggestions();
-  }, [loading, getEditor, seedSuggestions]);
+  }, [loading, seedSuggestions]);
 
   const accept = useCallback(
     (id: string) => {
@@ -230,6 +301,10 @@ const Playground = () => {
     seedSuggestions();
   }, [loading, getEditor, seedSuggestions]);
 
+  const handleSuggestionsChanged = useCallback((newSuggestions: SuggestionSnapshot[]) => {
+    setSuggestions(newSuggestions);
+  }, []);
+
   return (
     <div className="app">
       <div className="editor-card">
@@ -242,7 +317,7 @@ const Playground = () => {
         <p className="card-subtitle">
           The editor below is locked for manual typing. Suggestions arrive programmatically and you decide what sticks.
         </p>
-        <DemoMilkdown />
+        <DemoMilkdown onSuggestionsChanged={handleSuggestionsChanged} />
       </div>
       <aside className="suggestion-panel">
         <div className="card-header">

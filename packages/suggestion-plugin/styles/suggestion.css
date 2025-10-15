@@ -1,18 +1,47 @@
-.agent-suggestion {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.05rem 0.25rem;
+/* Base patch decoration */
+.milkdown-agent-patch {
+  display: inline;
+  padding: 0.1rem 0.2rem;
   border-radius: 0.25rem;
-  background-color: color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 40%, transparent);
-  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+/* Add operation (green) */
+.milkdown-agent-patch--add {
+  background-color: color-mix(in srgb, var(--agent-color-add, #16a34a) 15%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--agent-color-add, #16a34a) 40%, transparent);
+}
+
+/* Change operation (yellow) */
+.milkdown-agent-patch--change {
+  background-color: color-mix(in srgb, var(--agent-color-change, #eab308) 15%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--agent-color-change, #eab308) 40%, transparent);
+}
+
+/* Remove operation (red) */
+.milkdown-agent-patch--remove {
+  background-color: color-mix(in srgb, var(--agent-color-remove, #dc2626) 15%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--agent-color-remove, #dc2626) 40%, transparent);
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+/* User edits (inline source) - slightly different styling */
+.milkdown-agent-patch--user {
+  border-style: dashed;
+}
+
+/* AI suggestions (instrumented source) */
+.milkdown-agent-patch--ai {
+  border-style: solid;
 }
 
 .agent-suggestion__old {
   text-decoration: line-through;
   color: var(--agent-suggestion-remove, #dc2626);
-  opacity: 0.7;
+  opacity: 0.75;
+  font-size: 0.9em;
 }
 
 .agent-suggestion__new {
@@ -20,6 +49,67 @@
   color: var(--agent-suggestion-insert, #16a34a);
 }
 
-.agent-suggestion:hover {
-  background-color: color-mix(in srgb, var(--agent-suggestion-insert, #16a34a) 25%, transparent);
+/* Hover effects */
+.milkdown-agent-patch:hover {
+  opacity: 1;
+  filter: brightness(1.1);
+}
+
+/* Patch controls (accept/reject buttons) */
+.milkdown-agent-patch-controls {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-left: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  vertical-align: middle;
+}
+
+.milkdown-agent-patch:hover + .milkdown-agent-patch-controls,
+.milkdown-agent-patch-controls:hover {
+  opacity: 1;
+}
+
+.milkdown-agent-patch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border-radius: 0.25rem;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  color: #374151;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.milkdown-agent-patch-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.milkdown-agent-patch-btn--accept {
+  color: #16a34a;
+}
+
+.milkdown-agent-patch-btn--accept:hover {
+  background: #16a34a;
+  color: white;
+  border-color: #16a34a;
+}
+
+.milkdown-agent-patch-btn--reject {
+  color: #dc2626;
+}
+
+.milkdown-agent-patch-btn--reject:hover {
+  background: #dc2626;
+  color: white;
+  border-color: #dc2626;
 }
