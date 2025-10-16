@@ -8,7 +8,10 @@ import type { Patch } from '@milkdown-agent/core';
 export interface PluginState<T = string> {
   /** Current version (increments only on flush) */
   version: number;
-  
+
+  /** Latest editor document as plain text (used for flush snapshots) */
+  documentText: string;
+
   /** All active patches (ID → Patch) */
   patches: Map<string, Patch<T>>;
   
@@ -25,6 +28,7 @@ export interface PluginState<T = string> {
 export function createInitialState<T = string>(): PluginState<T> {
   return {
     version: 1,
+    documentText: '',
     patches: new Map(),
     pendingChanges: {
       hasDocumentChanges: false,

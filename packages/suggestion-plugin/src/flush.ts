@@ -4,10 +4,10 @@
  */
 
 import type { SyncFunction, SyncSnapshot, FlushResult, Patch } from '@milkdown-agent/core';
+import { createPatchId } from '@milkdown-agent/core';
 import type { PluginState } from './state.js';
 import { clearPendingChanges, incrementVersion } from './state.js';
-import { applyPatchesToDocument, formatPatchError } from './applyPatches.js';
-import { parseAiderFormat } from '@milkdown-agent/core';
+import { addPatch, type CommandCallbacks } from './commands.js';
 
 /**
  * Create snapshot from current state
@@ -33,8 +33,7 @@ export function createSnapshot<T>(state: PluginState<T>): SyncSnapshot {
  * Get document with all patches inline
  */
 function getDocumentWithPatches<T>(state: PluginState<T>): string {
-  // TODO: Implement - get editor content with patches inline
-  return '';
+  return state.documentText;
 }
 
 /**
@@ -43,11 +42,12 @@ function getDocumentWithPatches<T>(state: PluginState<T>): string {
  */
 export async function executeFlush<T>(
   state: PluginState<T>,
-  syncFn: SyncFunction<T>
+  syncFn: SyncFunction<T>,
+  callbacks?: CommandCallbacks<T>
 ): Promise<FlushResult> {
   const snapshot = createSnapshot(state);
   const initialVersion = state.version;
-  
+
   return new Promise((resolve) => {
     // Success callback
     const success = (patchesOrDocument?: T[] | string, version?: number) => {
@@ -57,10 +57,21 @@ export async function executeFlush<T>(
           // Full document mode
           // TODO: Parse and apply document
         } else if (Array.isArray(patchesOrDocument)) {
-          // Patch mode
-          // TODO: Apply patches
+          // Patch mode - convert backend patches to internal format
+          let workingDocument = state.documentText;
+
+          for (const patchData of patchesOrDocument) {
+            const instrumented = toInstrumentedPatch(patchData, workingDocument);
+
+            if (!instrumented) {
+              continue;
+            }
+
+            workingDocument = instrumented.updatedDocument;
+            addPatch(state, instrumented.patch as Patch<T>, callbacks);
+          }
         }
-        
+
         // Increment version
         if (version !== undefined) {
           state.version = version;
@@ -118,4 +129,79 @@ export async function executeFlush<T>(
 export function simpleFlush<T>(state: PluginState<T>): void {
   incrementVersion(state);
   clearPendingChanges(state);
+}
+
+interface ParsedPatchData {
+  search: string;
+  replace: string;
+}
+
+function detectOperation(search: string, replace: string): Patch['operation'] {
+  if (!search.trim() && replace.trim()) {
+    return 'add';
+  }
+  if (search.trim() && !replace.trim()) {
+    return 'remove';
+  }
+  return 'change';
+}
+
+function extractPatchParts(patch: unknown): ParsedPatchData | null {
+  if (typeof patch === 'string') {
+    const match = patch.match(/<<<SEARCH\n([\s\S]*?)\n===\n([\s\S]*?)\n>>>/);
+    if (match) {
+      return { search: match[1], replace: match[2] };
+    }
+  }
+
+  if (typeof patch === 'object' && patch !== null) {
+    const maybePatch = patch as Record<string, unknown>;
+    if (typeof maybePatch.search === 'string' && typeof maybePatch.replace === 'string') {
+      return { search: maybePatch.search, replace: maybePatch.replace };
+    }
+  }
+
+  return null;
+}
+
+function toInstrumentedPatch<T>(patchData: T, document: string): {
+  patch: Patch<T>;
+  updatedDocument: string;
+} | null {
+  const parts = extractPatchParts(patchData);
+  if (!parts) {
+    return null;
+  }
+
+  const { search, replace } = parts;
+  const operation = detectOperation(search, replace);
+  const id = createPatchId(search, replace);
+
+  let position = 0;
+  let updatedDocument = document;
+
+  if (search) {
+    const index = document.indexOf(search);
+    if (index !== -1) {
+      position = index;
+      updatedDocument =
+        document.slice(0, index) + replace + document.slice(index + search.length);
+    } else {
+      position = document.length;
+    }
+  } else {
+    position = document.length;
+    updatedDocument = document + replace;
+  }
+
+  return {
+    patch: {
+      id,
+      data: patchData,
+      operation,
+      source: 'instrumented',
+      position
+    },
+    updatedDocument
+  };
 }
