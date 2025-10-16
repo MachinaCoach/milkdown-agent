@@ -13,6 +13,7 @@
  */
 
 import type { Transaction } from '@milkdown/prose/state';
+import type { Step } from '@milkdown/prose/transform';
 import type { Patch } from '@milkdown-agent/core';
 import { createPatchId, formatAsPatch } from '@milkdown-agent/core';
 
@@ -49,8 +50,12 @@ export function trackUserEdits(tr: Transaction): Patch<string>[] {
       const newSize = newEnd - newStart;
       
       // Get actual text at positions
-      const oldText = beforeDoc ? beforeDoc.textBetween(oldStart, oldEnd) : '';
-      const newText = afterDoc.textBetween(newStart, newEnd);
+      const oldText = beforeDoc ? beforeDoc.textBetween(oldStart, oldEnd, '\n', '\n') : '';
+      let newText = afterDoc.textBetween(newStart, newEnd, '\n', '\n');
+
+      if (!newText) {
+        newText = getInsertedText(step);
+      }
       
       // Determine operation
       let operation: 'add' | 'change' | 'remove';
@@ -99,6 +104,30 @@ export function trackUserEdits(tr: Transaction): Patch<string>[] {
   
   // Phase 4: Reconcile conflicts
   return reconcilePatches(patches);
+}
+
+function getInsertedText(step: Step): string {
+  const anyStep = step as any;
+  const slice = anyStep?.slice;
+  if (slice && typeof slice === 'object' && 'content' in slice && typeof slice.content?.textBetween === 'function') {
+    try {
+      return slice.content.textBetween(0, slice.size ?? 0, '\n', '\n');
+    } catch {
+      // Fallback below
+    }
+  }
+
+  if (typeof anyStep?.toJSON === 'function') {
+    const json = anyStep.toJSON();
+    if (json && typeof json === 'object' && 'slice' in json) {
+      const sliceContent = (json as any).slice?.content;
+      if (typeof sliceContent === 'string') {
+        return sliceContent;
+      }
+    }
+  }
+
+  return '';
 }
 
 /**

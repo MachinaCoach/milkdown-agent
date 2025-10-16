@@ -5,6 +5,7 @@ import { $prose } from "@milkdown/utils";
 function createInitialState() {
   return {
     version: 1,
+    documentText: "",
     patches: /* @__PURE__ */ new Map(),
     pendingChanges: {
       hasDocumentChanges: false,
@@ -27,72 +28,7 @@ function incrementVersion(state) {
 }
 
 // src/flush.ts
-function createSnapshot(state) {
-  return {
-    version: state.version,
-    hasDocumentChanges: state.pendingChanges.hasDocumentChanges,
-    hasPatchChanges: state.pendingChanges.hasPatchChanges,
-    documentWithPatches: state.pendingChanges.hasDocumentChanges ? getDocumentWithPatches(state) : void 0,
-    patches: state.pendingChanges.hasPatchChanges ? Array.from(state.patches.values()).map((p) => p.data) : void 0,
-    acceptedPatches: Array.from(state.pendingChanges.acceptedPatches),
-    rejectedPatches: Array.from(state.pendingChanges.rejectedPatches),
-    newPatches: Array.from(state.pendingChanges.newPatches)
-  };
-}
-function getDocumentWithPatches(state) {
-  return "";
-}
-async function executeFlush(state, syncFn) {
-  const snapshot = createSnapshot(state);
-  const initialVersion = state.version;
-  return new Promise((resolve) => {
-    const success = (patchesOrDocument, version) => {
-      try {
-        if (typeof patchesOrDocument === "string") {
-        } else if (Array.isArray(patchesOrDocument)) {
-        }
-        if (version !== void 0) {
-          state.version = version;
-        } else {
-          incrementVersion(state);
-        }
-        clearPendingChanges(state);
-        resolve({
-          success: true,
-          version: state.version
-        });
-      } catch (error) {
-        state.version = initialVersion;
-        resolve({
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error"
-        });
-      }
-    };
-    const failure = (error, serverDocument, serverVersion) => {
-      resolve({
-        success: false,
-        error,
-        serverDocument,
-        serverVersion
-      });
-    };
-    try {
-      const result = syncFn(snapshot, success, failure);
-      if (result instanceof Promise) {
-        result.catch((error) => {
-          failure(error.message || "Sync function failed");
-        });
-      }
-    } catch (error) {
-      failure(error instanceof Error ? error.message : "Sync function threw error");
-    }
-  });
-}
-function simpleFlush(state) {
-  incrementVersion(state);
-  clearPendingChanges(state);
-}
+import { createPatchId } from "@milkdown-agent/core";
 
 // src/commands.ts
 function acceptPatch(state, patchId, callbacks) {
@@ -141,8 +77,142 @@ function addPatch(state, patch, callbacks) {
   callbacks?.onPatchesChanged?.(Array.from(state.patches.values()));
 }
 
+// src/flush.ts
+function createSnapshot(state) {
+  return {
+    version: state.version,
+    hasDocumentChanges: state.pendingChanges.hasDocumentChanges,
+    hasPatchChanges: state.pendingChanges.hasPatchChanges,
+    documentWithPatches: state.pendingChanges.hasDocumentChanges ? getDocumentWithPatches(state) : void 0,
+    patches: state.pendingChanges.hasPatchChanges ? Array.from(state.patches.values()).map((p) => p.data) : void 0,
+    acceptedPatches: Array.from(state.pendingChanges.acceptedPatches),
+    rejectedPatches: Array.from(state.pendingChanges.rejectedPatches),
+    newPatches: Array.from(state.pendingChanges.newPatches)
+  };
+}
+function getDocumentWithPatches(state) {
+  return state.documentText;
+}
+async function executeFlush(state, syncFn, callbacks) {
+  const snapshot = createSnapshot(state);
+  const initialVersion = state.version;
+  return new Promise((resolve) => {
+    const success = (patchesOrDocument, version) => {
+      try {
+        if (typeof patchesOrDocument === "string") {
+        } else if (Array.isArray(patchesOrDocument)) {
+          let workingDocument = state.documentText;
+          for (const patchData of patchesOrDocument) {
+            const instrumented = toInstrumentedPatch(patchData, workingDocument);
+            if (!instrumented) {
+              continue;
+            }
+            workingDocument = instrumented.updatedDocument;
+            addPatch(state, instrumented.patch, callbacks);
+          }
+        }
+        if (version !== void 0) {
+          state.version = version;
+        } else {
+          incrementVersion(state);
+        }
+        clearPendingChanges(state);
+        resolve({
+          success: true,
+          version: state.version
+        });
+      } catch (error) {
+        state.version = initialVersion;
+        resolve({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    };
+    const failure = (error, serverDocument, serverVersion) => {
+      resolve({
+        success: false,
+        error,
+        serverDocument,
+        serverVersion
+      });
+    };
+    try {
+      const result = syncFn(snapshot, success, failure);
+      if (result instanceof Promise) {
+        result.catch((error) => {
+          failure(error.message || "Sync function failed");
+        });
+      }
+    } catch (error) {
+      failure(error instanceof Error ? error.message : "Sync function threw error");
+    }
+  });
+}
+function simpleFlush(state) {
+  incrementVersion(state);
+  clearPendingChanges(state);
+}
+function detectOperation(search, replace) {
+  if (!search.trim() && replace.trim()) {
+    return "add";
+  }
+  if (search.trim() && !replace.trim()) {
+    return "remove";
+  }
+  return "change";
+}
+function extractPatchParts(patch) {
+  if (typeof patch === "string") {
+    const match = patch.match(/<<<SEARCH\n([\s\S]*?)\n===\n([\s\S]*?)\n>>>/);
+    if (match) {
+      return { search: match[1], replace: match[2] };
+    }
+  }
+  if (typeof patch === "object" && patch !== null) {
+    const maybePatch = patch;
+    if (typeof maybePatch.search === "string" && typeof maybePatch.replace === "string") {
+      return { search: maybePatch.search, replace: maybePatch.replace };
+    }
+  }
+  return null;
+}
+function toInstrumentedPatch(patchData, document2) {
+  const parts = extractPatchParts(patchData);
+  if (!parts) {
+    return null;
+  }
+  const { search, replace } = parts;
+  const operation = detectOperation(search, replace);
+  const id = createPatchId(search, replace);
+  let position = 0;
+  let updatedDocument = document2;
+  if (search) {
+    const index = document2.indexOf(search);
+    if (index !== -1) {
+      position = index;
+      updatedDocument = document2.slice(0, index) + replace + document2.slice(index + search.length);
+    } else {
+      position = document2.length;
+    }
+  } else {
+    position = document2.length;
+    updatedDocument = document2 + replace;
+  }
+  return {
+    patch: {
+      id,
+      data: patchData,
+      operation,
+      source: "instrumented",
+      position
+    },
+    updatedDocument
+  };
+}
+
 // src/tracking.ts
-import { createPatchId, formatAsPatch } from "@milkdown-agent/core";
+import { createPatchId as createPatchId2, formatAsPatch } from "@milkdown-agent/core";
 var changesByPosition = /* @__PURE__ */ new Map();
 function trackUserEdits(tr) {
   if (!tr.docChanged) {
@@ -156,8 +226,11 @@ function trackUserEdits(tr) {
     stepMap.forEach((oldStart, oldEnd, newStart, newEnd) => {
       const oldSize = oldEnd - oldStart;
       const newSize = newEnd - newStart;
-      const oldText = beforeDoc ? beforeDoc.textBetween(oldStart, oldEnd) : "";
-      const newText = afterDoc.textBetween(newStart, newEnd);
+      const oldText = beforeDoc ? beforeDoc.textBetween(oldStart, oldEnd, "\n", "\n") : "";
+      let newText = afterDoc.textBetween(newStart, newEnd, "\n", "\n");
+      if (!newText) {
+        newText = getInsertedText(step);
+      }
       let operation;
       if (oldSize === 0 && newSize > 0) {
         operation = "add";
@@ -196,9 +269,29 @@ function trackUserEdits(tr) {
   }
   return reconcilePatches(patches);
 }
+function getInsertedText(step) {
+  const anyStep = step;
+  const slice = anyStep?.slice;
+  if (slice && typeof slice === "object" && "content" in slice && typeof slice.content?.textBetween === "function") {
+    try {
+      return slice.content.textBetween(0, slice.size ?? 0, "\n", "\n");
+    } catch {
+    }
+  }
+  if (typeof anyStep?.toJSON === "function") {
+    const json = anyStep.toJSON();
+    if (json && typeof json === "object" && "slice" in json) {
+      const sliceContent = json.slice?.content;
+      if (typeof sliceContent === "string") {
+        return sliceContent;
+      }
+    }
+  }
+  return "";
+}
 function changeToPatch(change) {
   const data = formatAsPatch(change.oldText, change.newText);
-  const id = createPatchId(change.oldText, change.newText);
+  const id = createPatchId2(change.oldText, change.newText);
   return {
     id,
     data,
@@ -283,16 +376,51 @@ function agentSuggestion(config = {}) {
     return new ProseMirrorPlugin({
       key: agentPluginKey,
       state: {
-        init: () => state,
-        apply: (tr, pluginState) => {
+        init: (_config, editorState) => {
+          state.documentText = editorState.doc.textBetween(
+            0,
+            editorState.doc.content.size,
+            "\n",
+            "\n"
+          );
+          return state;
+        },
+        apply: (tr, pluginState, _oldState, newState) => {
           if (tr.docChanged) {
             const patches = trackUserEdits(tr);
             patches.forEach((patch) => {
               addPatch(state, patch, callbacks);
             });
           }
+          state.documentText = newState.doc.textBetween(
+            0,
+            newState.doc.content.size,
+            "\n",
+            "\n"
+          );
           return pluginState;
         }
+      },
+      view: (editorView) => {
+        state.documentText = editorView.state.doc.textBetween(
+          0,
+          editorView.state.doc.content.size,
+          "\n",
+          "\n"
+        );
+        return {
+          update: (view) => {
+            state.documentText = view.state.doc.textBetween(
+              0,
+              view.state.doc.content.size,
+              "\n",
+              "\n"
+            );
+          },
+          destroy: () => {
+            state.documentText = "";
+          }
+        };
       },
       // Visual diff overlay with decorations
       props: {
@@ -335,7 +463,7 @@ var agentCommands = {
     if (!currentState) {
       throw new Error("Agent plugin not initialized");
     }
-    return executeFlush(currentState, syncFn);
+    return executeFlush(currentState, syncFn, currentCallbacks || void 0);
   },
   /**
    * Simple flush (no sync)

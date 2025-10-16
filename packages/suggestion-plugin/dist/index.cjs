@@ -37,6 +37,7 @@ var import_utils = require("@milkdown/utils");
 function createInitialState() {
   return {
     version: 1,
+    documentText: "",
     patches: /* @__PURE__ */ new Map(),
     pendingChanges: {
       hasDocumentChanges: false,
@@ -59,72 +60,7 @@ function incrementVersion(state) {
 }
 
 // src/flush.ts
-function createSnapshot(state) {
-  return {
-    version: state.version,
-    hasDocumentChanges: state.pendingChanges.hasDocumentChanges,
-    hasPatchChanges: state.pendingChanges.hasPatchChanges,
-    documentWithPatches: state.pendingChanges.hasDocumentChanges ? getDocumentWithPatches(state) : void 0,
-    patches: state.pendingChanges.hasPatchChanges ? Array.from(state.patches.values()).map((p) => p.data) : void 0,
-    acceptedPatches: Array.from(state.pendingChanges.acceptedPatches),
-    rejectedPatches: Array.from(state.pendingChanges.rejectedPatches),
-    newPatches: Array.from(state.pendingChanges.newPatches)
-  };
-}
-function getDocumentWithPatches(state) {
-  return "";
-}
-async function executeFlush(state, syncFn) {
-  const snapshot = createSnapshot(state);
-  const initialVersion = state.version;
-  return new Promise((resolve) => {
-    const success = (patchesOrDocument, version) => {
-      try {
-        if (typeof patchesOrDocument === "string") {
-        } else if (Array.isArray(patchesOrDocument)) {
-        }
-        if (version !== void 0) {
-          state.version = version;
-        } else {
-          incrementVersion(state);
-        }
-        clearPendingChanges(state);
-        resolve({
-          success: true,
-          version: state.version
-        });
-      } catch (error) {
-        state.version = initialVersion;
-        resolve({
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error"
-        });
-      }
-    };
-    const failure = (error, serverDocument, serverVersion) => {
-      resolve({
-        success: false,
-        error,
-        serverDocument,
-        serverVersion
-      });
-    };
-    try {
-      const result = syncFn(snapshot, success, failure);
-      if (result instanceof Promise) {
-        result.catch((error) => {
-          failure(error.message || "Sync function failed");
-        });
-      }
-    } catch (error) {
-      failure(error instanceof Error ? error.message : "Sync function threw error");
-    }
-  });
-}
-function simpleFlush(state) {
-  incrementVersion(state);
-  clearPendingChanges(state);
-}
+var import_core = require("@milkdown-agent/core");
 
 // src/commands.ts
 function acceptPatch(state, patchId, callbacks) {
@@ -173,8 +109,142 @@ function addPatch(state, patch, callbacks) {
   callbacks?.onPatchesChanged?.(Array.from(state.patches.values()));
 }
 
+// src/flush.ts
+function createSnapshot(state) {
+  return {
+    version: state.version,
+    hasDocumentChanges: state.pendingChanges.hasDocumentChanges,
+    hasPatchChanges: state.pendingChanges.hasPatchChanges,
+    documentWithPatches: state.pendingChanges.hasDocumentChanges ? getDocumentWithPatches(state) : void 0,
+    patches: state.pendingChanges.hasPatchChanges ? Array.from(state.patches.values()).map((p) => p.data) : void 0,
+    acceptedPatches: Array.from(state.pendingChanges.acceptedPatches),
+    rejectedPatches: Array.from(state.pendingChanges.rejectedPatches),
+    newPatches: Array.from(state.pendingChanges.newPatches)
+  };
+}
+function getDocumentWithPatches(state) {
+  return state.documentText;
+}
+async function executeFlush(state, syncFn, callbacks) {
+  const snapshot = createSnapshot(state);
+  const initialVersion = state.version;
+  return new Promise((resolve) => {
+    const success = (patchesOrDocument, version) => {
+      try {
+        if (typeof patchesOrDocument === "string") {
+        } else if (Array.isArray(patchesOrDocument)) {
+          let workingDocument = state.documentText;
+          for (const patchData of patchesOrDocument) {
+            const instrumented = toInstrumentedPatch(patchData, workingDocument);
+            if (!instrumented) {
+              continue;
+            }
+            workingDocument = instrumented.updatedDocument;
+            addPatch(state, instrumented.patch, callbacks);
+          }
+        }
+        if (version !== void 0) {
+          state.version = version;
+        } else {
+          incrementVersion(state);
+        }
+        clearPendingChanges(state);
+        resolve({
+          success: true,
+          version: state.version
+        });
+      } catch (error) {
+        state.version = initialVersion;
+        resolve({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    };
+    const failure = (error, serverDocument, serverVersion) => {
+      resolve({
+        success: false,
+        error,
+        serverDocument,
+        serverVersion
+      });
+    };
+    try {
+      const result = syncFn(snapshot, success, failure);
+      if (result instanceof Promise) {
+        result.catch((error) => {
+          failure(error.message || "Sync function failed");
+        });
+      }
+    } catch (error) {
+      failure(error instanceof Error ? error.message : "Sync function threw error");
+    }
+  });
+}
+function simpleFlush(state) {
+  incrementVersion(state);
+  clearPendingChanges(state);
+}
+function detectOperation(search, replace) {
+  if (!search.trim() && replace.trim()) {
+    return "add";
+  }
+  if (search.trim() && !replace.trim()) {
+    return "remove";
+  }
+  return "change";
+}
+function extractPatchParts(patch) {
+  if (typeof patch === "string") {
+    const match = patch.match(/<<<SEARCH\n([\s\S]*?)\n===\n([\s\S]*?)\n>>>/);
+    if (match) {
+      return { search: match[1], replace: match[2] };
+    }
+  }
+  if (typeof patch === "object" && patch !== null) {
+    const maybePatch = patch;
+    if (typeof maybePatch.search === "string" && typeof maybePatch.replace === "string") {
+      return { search: maybePatch.search, replace: maybePatch.replace };
+    }
+  }
+  return null;
+}
+function toInstrumentedPatch(patchData, document2) {
+  const parts = extractPatchParts(patchData);
+  if (!parts) {
+    return null;
+  }
+  const { search, replace } = parts;
+  const operation = detectOperation(search, replace);
+  const id = (0, import_core.createPatchId)(search, replace);
+  let position = 0;
+  let updatedDocument = document2;
+  if (search) {
+    const index = document2.indexOf(search);
+    if (index !== -1) {
+      position = index;
+      updatedDocument = document2.slice(0, index) + replace + document2.slice(index + search.length);
+    } else {
+      position = document2.length;
+    }
+  } else {
+    position = document2.length;
+    updatedDocument = document2 + replace;
+  }
+  return {
+    patch: {
+      id,
+      data: patchData,
+      operation,
+      source: "instrumented",
+      position
+    },
+    updatedDocument
+  };
+}
+
 // src/tracking.ts
-var import_core = require("@milkdown-agent/core");
+var import_core2 = require("@milkdown-agent/core");
 var changesByPosition = /* @__PURE__ */ new Map();
 function trackUserEdits(tr) {
   if (!tr.docChanged) {
@@ -188,8 +258,11 @@ function trackUserEdits(tr) {
     stepMap.forEach((oldStart, oldEnd, newStart, newEnd) => {
       const oldSize = oldEnd - oldStart;
       const newSize = newEnd - newStart;
-      const oldText = beforeDoc ? beforeDoc.textBetween(oldStart, oldEnd) : "";
-      const newText = afterDoc.textBetween(newStart, newEnd);
+      const oldText = beforeDoc ? beforeDoc.textBetween(oldStart, oldEnd, "\n", "\n") : "";
+      let newText = afterDoc.textBetween(newStart, newEnd, "\n", "\n");
+      if (!newText) {
+        newText = getInsertedText(step);
+      }
       let operation;
       if (oldSize === 0 && newSize > 0) {
         operation = "add";
@@ -228,9 +301,29 @@ function trackUserEdits(tr) {
   }
   return reconcilePatches(patches);
 }
+function getInsertedText(step) {
+  const anyStep = step;
+  const slice = anyStep?.slice;
+  if (slice && typeof slice === "object" && "content" in slice && typeof slice.content?.textBetween === "function") {
+    try {
+      return slice.content.textBetween(0, slice.size ?? 0, "\n", "\n");
+    } catch {
+    }
+  }
+  if (typeof anyStep?.toJSON === "function") {
+    const json = anyStep.toJSON();
+    if (json && typeof json === "object" && "slice" in json) {
+      const sliceContent = json.slice?.content;
+      if (typeof sliceContent === "string") {
+        return sliceContent;
+      }
+    }
+  }
+  return "";
+}
 function changeToPatch(change) {
-  const data = (0, import_core.formatAsPatch)(change.oldText, change.newText);
-  const id = (0, import_core.createPatchId)(change.oldText, change.newText);
+  const data = (0, import_core2.formatAsPatch)(change.oldText, change.newText);
+  const id = (0, import_core2.createPatchId)(change.oldText, change.newText);
   return {
     id,
     data,
@@ -315,16 +408,51 @@ function agentSuggestion(config = {}) {
     return new import_state3.Plugin({
       key: agentPluginKey,
       state: {
-        init: () => state,
-        apply: (tr, pluginState) => {
+        init: (_config, editorState) => {
+          state.documentText = editorState.doc.textBetween(
+            0,
+            editorState.doc.content.size,
+            "\n",
+            "\n"
+          );
+          return state;
+        },
+        apply: (tr, pluginState, _oldState, newState) => {
           if (tr.docChanged) {
             const patches = trackUserEdits(tr);
             patches.forEach((patch) => {
               addPatch(state, patch, callbacks);
             });
           }
+          state.documentText = newState.doc.textBetween(
+            0,
+            newState.doc.content.size,
+            "\n",
+            "\n"
+          );
           return pluginState;
         }
+      },
+      view: (editorView) => {
+        state.documentText = editorView.state.doc.textBetween(
+          0,
+          editorView.state.doc.content.size,
+          "\n",
+          "\n"
+        );
+        return {
+          update: (view) => {
+            state.documentText = view.state.doc.textBetween(
+              0,
+              view.state.doc.content.size,
+              "\n",
+              "\n"
+            );
+          },
+          destroy: () => {
+            state.documentText = "";
+          }
+        };
       },
       // Visual diff overlay with decorations
       props: {
@@ -367,7 +495,7 @@ var agentCommands = {
     if (!currentState) {
       throw new Error("Agent plugin not initialized");
     }
-    return executeFlush(currentState, syncFn);
+    return executeFlush(currentState, syncFn, currentCallbacks || void 0);
   },
   /**
    * Simple flush (no sync)
@@ -435,7 +563,7 @@ var agentCommands = {
 };
 
 // src/commands/insert.ts
-var import_core2 = require("@milkdown/core");
+var import_core3 = require("@milkdown/core");
 var import_utils3 = require("@milkdown/utils");
 
 // src/schema/node.ts
@@ -506,7 +634,7 @@ var agentSuggestionNode = (0, import_utils2.$node)("agentSuggestion", () => ({
 }));
 
 // src/commands/insert.ts
-var InsertSuggestion = (0, import_core2.createCmdKey)("InsertSuggestion");
+var InsertSuggestion = (0, import_core3.createCmdKey)("InsertSuggestion");
 var insertSuggestionCommand = (0, import_utils3.$command)("InsertSuggestion", (ctx) => (payload) => {
   return (state, dispatch) => {
     if (!payload)
@@ -543,7 +671,7 @@ var insertSuggestionCommand = (0, import_utils3.$command)("InsertSuggestion", (c
 });
 
 // src/commands/accept.ts
-var import_core3 = require("@milkdown/core");
+var import_core4 = require("@milkdown/core");
 var import_utils5 = require("@milkdown/utils");
 
 // src/context.ts
@@ -569,7 +697,7 @@ var collectSuggestions = (doc) => {
 };
 
 // src/commands/accept.ts
-var AcceptSuggestion = (0, import_core3.createCmdKey)("AcceptSuggestion");
+var AcceptSuggestion = (0, import_core4.createCmdKey)("AcceptSuggestion");
 var acceptSuggestionCommand = (0, import_utils5.$command)("AcceptSuggestion", (ctx) => (id) => {
   return (state, dispatch) => {
     let found = false;
@@ -603,7 +731,7 @@ var acceptSuggestionCommand = (0, import_utils5.$command)("AcceptSuggestion", (c
         callbacks.onSuggestionAccepted(acceptedSuggestion);
       }
       if (callbacks.onSuggestionsChanged) {
-        const view = ctx.get(import_core3.editorViewCtx);
+        const view = ctx.get(import_core4.editorViewCtx);
         callbacks.onSuggestionsChanged(collectSuggestions(view.state.doc));
       }
     }
@@ -612,9 +740,9 @@ var acceptSuggestionCommand = (0, import_utils5.$command)("AcceptSuggestion", (c
 });
 
 // src/commands/reject.ts
-var import_core4 = require("@milkdown/core");
+var import_core5 = require("@milkdown/core");
 var import_utils6 = require("@milkdown/utils");
-var RejectSuggestion = (0, import_core4.createCmdKey)("RejectSuggestion");
+var RejectSuggestion = (0, import_core5.createCmdKey)("RejectSuggestion");
 var rejectSuggestionCommand = (0, import_utils6.$command)("RejectSuggestion", (ctx) => (id) => {
   return (state, dispatch) => {
     let found = false;
@@ -643,7 +771,7 @@ var rejectSuggestionCommand = (0, import_utils6.$command)("RejectSuggestion", (c
         callbacks.onSuggestionRejected(rejectedSuggestion);
       }
       if (callbacks.onSuggestionsChanged) {
-        const view = ctx.get(import_core4.editorViewCtx);
+        const view = ctx.get(import_core5.editorViewCtx);
         callbacks.onSuggestionsChanged(collectSuggestions(view.state.doc));
       }
     }
@@ -652,10 +780,10 @@ var rejectSuggestionCommand = (0, import_utils6.$command)("RejectSuggestion", (c
 });
 
 // src/commands/batch.ts
-var import_core5 = require("@milkdown/core");
+var import_core6 = require("@milkdown/core");
 var import_utils7 = require("@milkdown/utils");
-var AcceptAllSuggestions = (0, import_core5.createCmdKey)("AcceptAllSuggestions");
-var RejectAllSuggestions = (0, import_core5.createCmdKey)("RejectAllSuggestions");
+var AcceptAllSuggestions = (0, import_core6.createCmdKey)("AcceptAllSuggestions");
+var RejectAllSuggestions = (0, import_core6.createCmdKey)("RejectAllSuggestions");
 var acceptAllSuggestionsCommand = (0, import_utils7.$command)("AcceptAllSuggestions", (ctx) => () => {
   return (state, dispatch) => {
     let changed = false;

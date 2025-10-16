@@ -44,23 +44,62 @@ export function agentSuggestion<T = string>(config: AgentPluginConfig<T> = {}): 
   return $prose(() => {
     return new ProseMirrorPlugin({
       key: agentPluginKey,
-      
+
       state: {
-        init: () => state,
-        apply: (tr, pluginState) => {
+        init: (_config, editorState) => {
+          state.documentText = editorState.doc.textBetween(
+            0,
+            editorState.doc.content.size,
+            '\n',
+            '\n'
+          );
+          return state;
+        },
+        apply: (tr, pluginState, _oldState, newState) => {
           // Track user edits - computed immediately on every transaction
           if (tr.docChanged) {
             // Get patches immediately (no timers!)
             const patches = trackUserEdits(tr);
-            
+
             // Add patches
             patches.forEach(patch => {
               addPatch(state, patch as Patch<T>, callbacks);
             });
           }
-          
+
+          // Update cached document text for flush snapshots
+          state.documentText = newState.doc.textBetween(
+            0,
+            newState.doc.content.size,
+            '\n',
+            '\n'
+          );
+
           return pluginState;
         }
+      },
+
+      view: (editorView) => {
+        state.documentText = editorView.state.doc.textBetween(
+          0,
+          editorView.state.doc.content.size,
+          '\n',
+          '\n'
+        );
+
+        return {
+          update: (view) => {
+            state.documentText = view.state.doc.textBetween(
+              0,
+              view.state.doc.content.size,
+              '\n',
+              '\n'
+            );
+          },
+          destroy: () => {
+            state.documentText = '';
+          }
+        };
       },
       
       // Visual diff overlay with decorations
@@ -127,7 +166,7 @@ export const agentCommands = {
     if (!currentState) {
       throw new Error('Agent plugin not initialized');
     }
-    return executeFlush(currentState, syncFn);
+    return executeFlush(currentState, syncFn, currentCallbacks || undefined);
   },
   
   /**
